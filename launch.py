@@ -253,6 +253,13 @@ class ModularAscentControl(object):
         F = self.vessel.available_thrust
         # calculate burn time based on rocket equation
         return (m - (m / math.exp(dv / (isp * G)))) / (F / (isp * G))
+        
+    def magnitude(self, vector):
+        '''
+        Return the magnitude (length) of a vector
+        '''
+        return math.sqrt(sum(x * x for x in vector))
+    
 
 class Controller(object):
     '''
@@ -521,16 +528,6 @@ class FinalizeController(Controller):
     def process(self):
         if self.status == Status.FINALIZE:
             self.vessel.control.remove_nodes()
-
-# ----------------------------------------------------------------------------
-# Generic helper functions
-# ----------------------------------------------------------------------------
-def magnitude(vector):
-    '''
-    Return the magnitude (length) of a vector
-    '''
-    return math.sqrt(sum(x * x for x in vector))
-
 # ----------------------------------------------------------------------------
 # Activate main loop, assuming we are executing THIS file explicitly.
 # ----------------------------------------------------------------------------
