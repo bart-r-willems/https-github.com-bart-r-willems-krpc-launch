@@ -7,14 +7,6 @@ from enum import Enum
 # Launch parameters
 # ----------------------------------------------------------------------------
 
-ORBIT_ALT = 100000
-GRAV_TURN_FINISH = 55000  #meters by which vessel should be at 0 pitch
-MAX_AUTO_STAGE = 0  # last stage to separate automatically
-MAX_Q = 50000
-DEPLOY_SOLAR = True
-FORCE_ROLL = True
-ROLL = 90
-INCLINATION = 0
 G = 9.82 # standard G
 
 REFRESH_FREQ = 5     # refresh rate in hz
@@ -54,6 +46,27 @@ class Status(Enum):
 class FuelTypes(Enum):
     LIQUIDFUEL = 'LiquidFuel'
     SOLIDFUEL = 'SolidFuel'
+
+class MissionParameters(object):
+    '''
+    All mission parameters are stored in a single object to easily
+    pass around
+    '''
+    def __init__(self,
+                 max_auto_stage=0,
+                 orbit_alt=100000,
+                 grav_turn_finish=55000,
+                 inclination=0,
+                 roll=None,
+                 deploy_solar=True,
+                 max_q=20000):
+        self.max_auto_stage = max_auto_stage
+        self.orbit_alt = orbit_alt
+        self.grav_turn_finish = grav_turn_finish
+        self.inclination = inclination
+        self.roll = roll
+        self.deploy_solar = deploy_solar
+        self.max_q = max_q
 
 class Display(object):
     def __init__(self):
@@ -116,7 +129,19 @@ class ModularAscentControl(object):
     '''
     Framework for a controlled ascent with modular components
     '''
-    def __init__(self, name):
+    def __init__(self, name, mission_parameters=None):
+        '''
+        Mission parameters are provided through a MissionParameters
+        object, if none are given, defaults are used
+
+        name:   string, the name of the connection in KSP
+        mission_parameters: MissionParameters, things like target alt, etc.
+        '''
+        # flight parameters
+        if mission_parameters == None:
+            self.param = MissionParameters()
+        else:
+            self.param = mission_parameters
         # set process variables
         self.conn = krpc.connect(name=name)
         self.sc = self.conn.space_center
@@ -126,16 +151,23 @@ class ModularAscentControl(object):
         # initialize controllers
         self.controllers = ('guidance', 'throttle', 'staging',
                             'warp', 'finalize')
-        self.guidance = GuidanceController(self.sc, self.vessel, self.flight)
-        self.throttle = ThrottleController(self.sc, self.vessel, self.flight)
-        self.staging = StagingController(self.sc, self.vessel, self.flight)
-        self.warp = WarpController(self.sc, self.vessel, self.flight)
-        self.finalize = FinalizeController(self.sc, self.vessel, self.flight)
+        self.guidance = self.create_controller(GuidanceController)
+        self.throttle = self.create_controller(ThrottleController)
+        self.staging = self.create_controller(StagingController)
+        self.warp = self.create_controller(WarpController)
+        self.finalize = self.create_controller(FinalizeController)
         # create a hook to the display functions
         # a simple print-to-console class if nothing else if provided
         self.D = Display()
         self.display_telemetry = self.D.telemetry
         self.display_status = self.D.status
+
+    def create_controller(self, controller):
+        '''
+        Mini factory for creating controller objects; to remove clutter
+        from the __init__ procedure
+        '''
+        return controller(self.sc, self.vessel, self.flight, self.param)
 
     def register_controller(self, controller_name, controller_class):
         '''
@@ -222,7 +254,7 @@ class ModularAscentControl(object):
             # cut to coasting once apoapsis is achieved within
             # desirable limits. The guidance module will set a node
             # to circularize once coasting mode is entered
-            if self.vessel.orbit.apoapsis_altitude > ORBIT_ALT * 0.95:
+            if self.vessel.orbit.apoapsis_altitude > self.param.orbit_alt * 0.95:
                 self.set_status(Status.COAST)
         elif self.status == Status.COAST:
             # keep coasting until it's time to burn
@@ -233,8 +265,8 @@ class ModularAscentControl(object):
             # circularize will stop once periapsis
             # is close to target apoapsis_altitude
             # or when apoapsis starts to balloon
-            min_peri = self.vessel.orbit.periapsis_altitude > ORBIT_ALT * 0.90
-            max_apo = self.vessel.orbit.apoapsis_altitude > ORBIT_ALT * 1.10
+            min_peri = self.vessel.orbit.periapsis_altitude > self.param.orbit_alt * 0.90
+            max_apo = self.vessel.orbit.apoapsis_altitude > self.param.orbit_alt * 1.10
             if min_peri or max_apo:
                 self.set_status(Status.FINALIZE)
         elif self.status == Status.FINALIZE:
@@ -265,11 +297,12 @@ class Controller(object):
     '''
     Baseclass for the various controllers that are utilized during a launch
     '''
-    def __init__(self, spacecenter, vessel, flight):
+    def __init__(self, spacecenter, vessel, flight, param):
         self.spacecenter = spacecenter
         self.vessel = vessel
         self.flight = flight
         self.status = Status.IDLE
+        self.param = param
 
     def process(self):
         '''
@@ -319,16 +352,16 @@ class GuidanceController(Controller):
         Perform the pitch manuever (sometimes referred to as "gravity turn")
         Based on Robet Penner's easing equations (EaseOut)
         '''
-        progress = self.flight.mean_altitude / GRAV_TURN_FINISH
+        progress = self.flight.mean_altitude / self.param.grav_turn_finish
         target_pitch = 90 - (-90 * progress * (progress - 2))
-        target_heading = self.inc_to_heading(INCLINATION)
+        target_heading = self.inc_to_heading(self.param.inclination)
 
         # print('Heading: {:3.0f} Pitch: {:3.0f}'.format(target_heading, target_pitch))
         self.vessel.auto_pilot.engage()
         self.vessel.auto_pilot.target_pitch = target_pitch
         self.vessel.auto_pilot.target_heading = target_heading
-        if FORCE_ROLL:
-            self.vessel.auto_pilot.target_roll = ROLL
+        if self.param.roll != None:
+            self.vessel.auto_pilot.target_roll = self.param.roll
 
     def set_sas_mode(self, mode):
         '''
@@ -451,7 +484,7 @@ class StagingController(Controller):
         check if a stage should be activated
         '''
         # out of stages?
-        if self.vessel.control.current_stage <= MAX_AUTO_STAGE:
+        if self.vessel.control.current_stage <= self.param.max_auto_stage:
             return
 
         interstage = True
