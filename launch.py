@@ -53,6 +53,7 @@ class MissionParameters(object):
     '''
     def __init__(self,
                  max_auto_stage=0,
+                 no_orbital_debris=True,
                  orbit_alt=100000,
                  grav_turn_finish=55000,
                  inclination=0,
@@ -60,6 +61,7 @@ class MissionParameters(object):
                  deploy_solar=True,
                  max_q=20000):
         self.max_auto_stage = max_auto_stage
+        self.no_orbital_debris = no_orbital_debris
         self.orbit_alt = orbit_alt
         self.grav_turn_finish = grav_turn_finish
         self.inclination = inclination
@@ -75,10 +77,6 @@ class Display(object):
         '''
         Take a Telemetry object t and display it in a pleasing way
         '''
-        # only update when last update is older than one second
-        if time.time() < self.last_update + 1.0:
-            return
-
         # define the data to be displayed in as many columns needed
         col1 = ('Apoapsis:       {apoapsis:8,.0f}',
                 'Time to apo:       {time_to_apo:5,.0f}',
@@ -94,10 +92,10 @@ class Display(object):
                 'Longitude:      {lon:5.1f}\n',
                 'G-force:         {g:4.1f}')
         # zip the columns together and display them
-        print('-' * 60)
+        print('-' * 50)
         for display_line in zip(col1, col2):
             print('     '.join(display_line).format(**t.__dict__))
-        print('-' * 60)
+        print('-' * 50)
         print('\n')
         self.last_update = time.time()
 
@@ -190,19 +188,24 @@ class ModularAscentControl(object):
         setattr(self, controller_name, new_controller)
 
     def to_orbit(self):
-        self.set_status(Status.PRELAUNCH)
-        while self.status != Status.DONE:
-            self.guidance.process()
-            self.throttle.process()
-            self.staging.process()
-            self.warp.process()
-            self.finalize.process()
-            # only update telemetry in set intervals
-            if time.time() > self.last_telemetry + TELEM_DELAY:
-                self.telemetry()
-                self.last_telemetry = time.time()
-            self.update_status()
-            time.sleep(1.0 / REFRESH_FREQ)
+        try:
+            self.set_status(Status.PRELAUNCH)
+            while self.status != Status.DONE:
+                self.guidance.process()
+                self.throttle.process()
+                self.staging.process()
+                self.warp.process()
+                self.finalize.process()
+                # only update telemetry in set intervals
+                if time.time() > self.last_telemetry + TELEM_DELAY:
+                    self.telemetry()
+                    self.last_telemetry = time.time()
+                self.update_status()
+                time.sleep(1.0 / REFRESH_FREQ)
+        except Exception as e:
+            # the software crashed! Prepare emergency evac!
+            self.vessel.control.throttle = 0
+            self.set_status('SOFTWARE CRASH: ' + str(e))
 
     def telemetry(self):
         '''
@@ -489,7 +492,9 @@ class StagingController(Controller):
         # out of stages?
         if self.vessel.control.current_stage <= self.param.max_auto_stage:
             return
-
+        # check for preventing non-final stages to reach orbit
+        self.cleanup_debris()
+        # check current stage for staging
         interstage = True
         for fueltype in FuelTypes:
             if self.carries_fuel(fueltype):
@@ -499,6 +504,31 @@ class StagingController(Controller):
                     return
         if interstage:
             self.vessel.control.activate_next_stage()
+
+    def cleanup_debris(self):
+        '''
+        If no_debris status is active, perform check to ensure that all
+        non-final stages are released before reaching orbit
+        '''
+        # check for validity
+        if not self.param.no_orbital_debris:
+            return
+        if self.status != Status.CIRCULARIZE:
+            return
+        if self.vessel.orbit.periapsis_altitude < 10000.0:
+            return
+        if self.vessel.control.current_stage <= self.param.max_auto_stage + 1:
+            return
+        # release all non-final stages; first, cut throttle to prevent
+        # the active stage from burning itself into orbit
+        current_throttle = self.vessel.control.throttle
+        self.vessel.control.throttle = 0
+        time.sleep(0.5) # allow time for engines to cut
+        while self.vessel.control.current_stage > self.param.max_auto_stage + 1:
+            self.vessel.control.activate_next_stage()
+        # allow time for fairings, etc to float away before restoring throttle
+        time.sleep(1.5)
+        self.vessel.control.throttle = current_throttle
 
     def resource(self):
         '''
@@ -562,8 +592,14 @@ class WarpController(Controller):
 
 class FinalizeController(Controller):
     def process(self):
-        if self.status == Status.FINALIZE:
-            self.vessel.control.remove_nodes()
+        # check for status
+        if self.status != Status.FINALIZE:
+            return
+        # perform finalize tasks
+        self.vessel.control.remove_nodes()
+        if self.param.deploy_solar:
+            self.vessel.control.solar_panels = True
+
 # ----------------------------------------------------------------------------
 # Activate main loop, assuming we are executing THIS file explicitly.
 # ----------------------------------------------------------------------------
