@@ -8,9 +8,8 @@ from enum import Enum
 # ----------------------------------------------------------------------------
 
 G = 9.82 # standard G
-
 REFRESH_FREQ = 5     # refresh rate in hz
-TELEM_DELAY = .3     #number of seconds between telemetry updates
+TELEM_DELAY = 1.0     #number of seconds between telemetry updates
 MAX_PHYSICS_WARP = 3 # valid values are 0 (none) through 3 (4x)
 
 
@@ -57,7 +56,7 @@ class MissionParameters(object):
                  orbit_alt=100000,
                  grav_turn_finish=55000,
                  inclination=0,
-                 roll=None,
+                 roll=90,
                  deploy_solar=True,
                  max_q=20000):
         self.max_auto_stage = max_auto_stage
@@ -161,6 +160,7 @@ class ModularAscentControl(object):
         self.D = Display()
         self.display_telemetry = self.D.telemetry
         self.display_status = self.D.status
+        self.last_telemetry = time.time()
 
     def create_controller(self, controller):
         '''
@@ -192,12 +192,15 @@ class ModularAscentControl(object):
     def to_orbit(self):
         self.set_status(Status.PRELAUNCH)
         while self.status != Status.DONE:
-            self.telemetry()
             self.guidance.process()
             self.throttle.process()
             self.staging.process()
             self.warp.process()
             self.finalize.process()
+            # only update telemetry in set intervals
+            if time.time() > self.last_telemetry + TELEM_DELAY:
+                self.telemetry()
+                self.last_telemetry = time.time()
             self.update_status()
             time.sleep(1.0 / REFRESH_FREQ)
 
