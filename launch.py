@@ -213,7 +213,7 @@ class ModularAscentControl(object):
             # before advancing to pitch manuever, ensure that
             # minimum height and velocity are achieved
             frame = self.vessel.surface_velocity_reference_frame
-            speed = magnitude(self.vessel.velocity(frame))
+            speed = self.magnitude(self.vessel.velocity(frame))
             min_height = self.flight.mean_altitude > 100
             min_velocity = self.vessel.orbit.speed > 50
             if min_height and min_velocity:
@@ -253,13 +253,13 @@ class ModularAscentControl(object):
         F = self.vessel.available_thrust
         # calculate burn time based on rocket equation
         return (m - (m / math.exp(dv / (isp * G)))) / (F / (isp * G))
-        
+
     def magnitude(self, vector):
         '''
         Return the magnitude (length) of a vector
         '''
         return math.sqrt(sum(x * x for x in vector))
-    
+
 
 class Controller(object):
     '''
