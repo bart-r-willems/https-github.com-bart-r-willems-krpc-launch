@@ -7,7 +7,6 @@ from enum import Enum
 # Launch parameters
 # ----------------------------------------------------------------------------
 
-G = 9.82 # standard G
 REFRESH_FREQ = 5     # refresh rate in hz
 TELEM_DELAY = 1.0     #number of seconds between telemetry updates
 MAX_PHYSICS_WARP = 3 # valid values are 0 (none) through 3 (4x)
@@ -102,7 +101,6 @@ class Display(object):
     def status(self, s):
         '''
         Print status message
-
         s: string
         '''
         print(s)
@@ -130,7 +128,6 @@ class ModularAscentControl(object):
         '''
         Mission parameters are provided through a MissionParameters
         object, if none are given, defaults are used
-
         name:   string, the name of the connection in KSP
         mission_parameters: MissionParameters, things like target alt, etc.
         '''
@@ -175,7 +172,6 @@ class ModularAscentControl(object):
         This will replace the default Throttle Controller with on based on a
         class called "FancyThrottle."
         Controller classes must be subclassed from the Controller base class,
-
         controller_name: string, must be in ModularAscentControl.controllers
         controller_class: Controller type class
         '''
@@ -217,7 +213,6 @@ class ModularAscentControl(object):
         '''
         set the status of the launch process
         propagate status throughout various controllers
-
         status: Status type enum
         '''
         self.display_status(status.name)
@@ -232,7 +227,6 @@ class ModularAscentControl(object):
         '''
         based on the flight profile, update the status,
         activing different modes in the controllers
-
         status: Status type enum
         '''
 
@@ -289,6 +283,7 @@ class ModularAscentControl(object):
         isp = self.vessel.specific_impulse
         dv = node.delta_v
         F = self.vessel.available_thrust
+        G = self.vessel.orbit.body.surface_gravity
         # calculate burn time based on rocket equation
         return (m - (m / math.exp(dv / (isp * G)))) / (F / (isp * G))
 
@@ -322,7 +317,6 @@ class Controller(object):
         '''
         Set the status through a function, so the controller is aware
         of status changes.
-
         status: Status type enum
         '''
         self.status = status
@@ -404,7 +398,6 @@ class GuidanceController(Controller):
         '''
         Converts desired inclination to a compass heading that can be
         tracked by the autopilot
-
         inc: inclination in degrees
         '''
         if inc > 180 or inc < -180:
@@ -421,7 +414,6 @@ class GuidanceController(Controller):
         '''
         Overriding the set_status function of the controller base class
         if status set to COAST, create node for circularization
-
         status: Status type enum
         '''
         self.status = status
@@ -469,6 +461,7 @@ class ThrottleController(Controller):
         isp = self.vessel.specific_impulse
         dv = node.delta_v
         F = self.vessel.available_thrust
+        G = self.vessel.orbit.body.surface_gravity
         # calculate burn time based on rocket equation
         return (m - (m / math.exp(dv / (isp * G)))) / (F / (isp * G))
 
@@ -542,7 +535,6 @@ class StagingController(Controller):
         '''
         return True if a fuel capacity for the fueltype is available
         in the current stage
-
         fueltype: FuelType enum
         '''
         return self.resource().max(fueltype.value) > 0
@@ -551,7 +543,6 @@ class StagingController(Controller):
         '''
         return True if fuel of the fueltype is actually available in
         the current stage
-
         fueltype: FuelType enum
         '''
         return self.resource().amount(fueltype.value) > 0
@@ -579,6 +570,7 @@ class WarpController(Controller):
         isp = self.vessel.specific_impulse
         dv = node.delta_v
         F = self.vessel.available_thrust
+        G = self.vessel.orbit.body.surface_gravity
         # calculate burn time based on rocket equation
         return (m - (m / math.exp(dv / (isp * G)))) / (F / (isp * G))
 
